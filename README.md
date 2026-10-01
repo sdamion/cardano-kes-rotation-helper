@@ -41,6 +41,12 @@ sudo apt-get install -y jq coreutils util-linux procps
 
 Als alles al aanwezig is, wordt `apt-get` niet aangeroepen. In `cold`-modus wordt `apt-get` nooit aangeroepen, zodat de cold node offline kan blijven. Daar moeten `sha256sum` (normaal standaard aanwezig via `coreutils`) en een compatibele `cardano-cli` vooraf beschikbaar zijn. `cardano-cli` moet ook op de block producer al geïnstalleerd zijn en compatibel zijn met je draaiende `cardano-node`.
 
+Het script zoekt `cardano-cli` ook buiten de beperkte `sudo`-`PATH`, waaronder `~/.local/bin`, `~/.cabal/bin`, `/usr/local/bin`, `/usr/bin` en gangbare `/opt/cardano`-locaties. Met een afwijkende installatie kun je het pad expliciet meegeven:
+
+```bash
+sudo CARDANO_CLI=/volledig/pad/naar/cardano-cli ./cardano-kes-rotate.sh
+```
+
 ## De volledige flow
 
 1. Start `sudo ./cardano-kes-rotate.sh` op de block producer.

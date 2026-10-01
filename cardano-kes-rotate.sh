@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 SCRIPT_NAME="$(basename "$0")"
 NETWORK_ARGS=()
 
@@ -93,6 +93,33 @@ choose_candidate() {
   ask "$var" "Path to $description"
 }
 
+resolve_cardano_cli() {
+  local sudo_home="" discovered=""
+  if [[ -n "${CARDANO_CLI:-}" && -x "$CARDANO_CLI" ]]; then
+    CARDANO_CLI="$(canonical "$CARDANO_CLI")"
+    return
+  fi
+  discovered="$(command -v cardano-cli 2>/dev/null || true)"
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    sudo_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
+    [[ -n "$sudo_home" ]] || sudo_home="/home/$SUDO_USER"
+  fi
+  choose_candidate CARDANO_CLI "cardano-cli executable" \
+    "$discovered" \
+    "${sudo_home:+$sudo_home/.local/bin/cardano-cli}" \
+    "${sudo_home:+$sudo_home/.cabal/bin/cardano-cli}" \
+    /usr/local/bin/cardano-cli \
+    /usr/bin/cardano-cli \
+    /opt/cardano/bin/cardano-cli \
+    /opt/cardano/cnode/priv/bin/cardano-cli \
+    /home/*/.local/bin/cardano-cli \
+    /home/*/.cabal/bin/cardano-cli
+  [[ -x "$CARDANO_CLI" ]] || die "cardano-cli is not executable: $CARDANO_CLI"
+  CARDANO_CLI="$(canonical "$CARDANO_CLI")"
+  printf 'Using cardano-cli: %s\n' "$CARDANO_CLI"
+  "$CARDANO_CLI" --version
+}
+
 find_files() {
   local name="$1"; shift
   find "$@" -xdev -type f -name "$name" -print 2>/dev/null || true
@@ -125,8 +152,8 @@ detect_transfer_root() {
 }
 
 detect_bp_environment() {
-  need jq; need sha256sum; need cardano-cli
-  CARDANO_CLI="$(command -v cardano-cli)"
+  need jq; need sha256sum
+  resolve_cardano_cli
   local args socket config kes vkey cert service user group
   args="$(node_command_line)"
   socket="${CARDANO_NODE_SOCKET_PATH:-$(arg_value "$args" '--socket-path')}"
@@ -234,7 +261,8 @@ EOF
 }
 
 cold() {
-  need sha256sum; need cardano-cli
+  need sha256sum
+  resolve_cardano_cli
   local transfer="${2:-}" cold_skey="" cold_counter="" backup period stamp
   [[ -n "$transfer" ]] || choose_candidate transfer "kes-rotation transfer directory" "$PWD"/kes-rotation-* "$PWD"
   require_dir "$transfer"; require_file "$transfer/kes.vkey"; require_file "$transfer/kes-period.txt"; require_file "$transfer/kes.vkey.sha256"
@@ -251,7 +279,7 @@ cold() {
   yes "I confirm this is the latest cold.counter" || die "Cancelled."
   mkdir -p "$backup"; stamp="$(date -u +'%Y%m%dT%H%M%SZ')"
   cp -a "$cold_counter" "$backup/cold.counter.$stamp.before"
-  cardano-cli node issue-op-cert --kes-verification-key-file "$transfer/kes.vkey" --cold-signing-key-file "$cold_skey" --operational-certificate-issue-counter "$cold_counter" --kes-period "$period" --out-file "$transfer/node.cert"
+  "$CARDANO_CLI" node issue-op-cert --kes-verification-key-file "$transfer/kes.vkey" --cold-signing-key-file "$cold_skey" --operational-certificate-issue-counter "$cold_counter" --kes-period "$period" --out-file "$transfer/node.cert"
   cp -a "$cold_counter" "$backup/cold.counter.$stamp.after"
   (cd "$transfer" && sha256sum node.cert >node.cert.sha256)
   sync

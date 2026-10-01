@@ -23,5 +23,12 @@ mkdir "$tmp/transfer-root" "$tmp/transfer-root/kes-rotation-1"
 touch "$tmp/transfer-root/kes-rotation-1/node.cert"
 [[ "$(find_returned_transfer kes-rotation-1 "$tmp/transfer-root")" == "$tmp/transfer-root/kes-rotation-1" ]] || fail "returned transfer detection"
 
+mkdir "$tmp/bin"
+printf '#!/usr/bin/env bash\necho mock-cardano-cli\n' >"$tmp/bin/cardano-cli"
+chmod 700 "$tmp/bin/cardano-cli"
+CARDANO_CLI="$tmp/bin/cardano-cli"
+resolve_cardano_cli
+[[ "$CARDANO_CLI" == "$(canonical "$tmp/bin/cardano-cli")" ]] || fail "explicit cardano-cli discovery"
+
 bash -n "$ROOT/cardano-kes-rotate.sh"
 echo "All tests passed"
