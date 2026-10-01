@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="1.1.1"
+VERSION="1.1.2"
 SCRIPT_NAME="$(basename "$0")"
 NETWORK_ARGS=()
 
@@ -122,7 +122,9 @@ resolve_cardano_cli() {
 
 find_files() {
   local name="$1"; shift
-  find "$@" -xdev -type f -name "$name" -print 2>/dev/null || true
+  find "$@" -xdev \
+    \( -path '*/.cabal/store' -o -path '*/.cache' -o -path '*/share/fixtures' \) -prune -o \
+    -type f -name "$name" -print 2>/dev/null || true
 }
 
 node_command_line() {
@@ -154,7 +156,7 @@ detect_transfer_root() {
 detect_bp_environment() {
   need jq; need sha256sum
   resolve_cardano_cli
-  local args socket config kes vkey cert service user group
+  local args socket config kes cert service user group
   args="$(node_command_line)"
   socket="${CARDANO_NODE_SOCKET_PATH:-$(arg_value "$args" '--socket-path')}"
   config="$(arg_value "$args" '--config')"
@@ -181,8 +183,12 @@ detect_bp_environment() {
   mapfile -t candidates < <(printf '%s\n' "${candidates[@]:-}"; find_files 'kes.skey' "${key_dir:-/nonexistent}" /opt/cardano /etc/cardano /srv/cardano /home 2>/dev/null)
   choose_candidate ACTIVE_KES_SKEY "active KES signing key" "${candidates[@]}"
   key_dir="$(dirname "$ACTIVE_KES_SKEY")"
-  vkey="${ACTIVE_KES_SKEY%.skey}.vkey"
-  choose_candidate ACTIVE_KES_VKEY "active KES verification key" "$vkey" "$key_dir/kes.vkey"
+  ACTIVE_KES_VKEY="${ACTIVE_KES_SKEY%.skey}.vkey"
+  if [[ -f "$ACTIVE_KES_VKEY" ]]; then
+    printf 'Detected %-24s %s\n' "active KES verification key:" "$ACTIVE_KES_VKEY"
+  else
+    printf 'No active KES verification key exists; the new one will be stored at: %s\n' "$ACTIVE_KES_VKEY"
+  fi
 
   local -a certs=()
   [[ -n "$cert" ]] && certs+=("$cert")
@@ -210,7 +216,7 @@ detect_bp_environment() {
 
 prepare() {
   detect_bp_environment
-  require_file "$ACTIVE_KES_SKEY"; require_file "$ACTIVE_KES_VKEY"; require_file "$ACTIVE_NODE_CERT"
+  require_file "$ACTIVE_KES_SKEY"; require_file "$ACTIVE_NODE_CERT"
   confirm "DETECTED BLOCK PRODUCER SETTINGS" \
     "Network: $NETWORK_NAME" "Socket: $NODE_SOCKET" "Genesis: $SHELLEY_GENESIS" \
     "Active KES key: $ACTIVE_KES_SKEY" "Active certificate: $ACTIVE_NODE_CERT" \
@@ -311,7 +317,9 @@ install_phase() {
   [[ "$local_hash" == "$returned_hash" ]] || die "Returned KES vkey does not match the pending signing key."
   confirm "READY TO INSTALL" "KES signing key: $pending/kes.skey" "Certificate: $transfer/node.cert" "Service: $SERVICE" "Existing credentials will be backed up first."
   backup="$WORK_ROOT/backups/$(date -u +'%Y%m%dT%H%M%SZ')"; mkdir -p "$backup"
-  cp -a "$ACTIVE_KES_SKEY" "$backup/kes.skey"; cp -a "$ACTIVE_KES_VKEY" "$backup/kes.vkey"; cp -a "$ACTIVE_NODE_CERT" "$backup/node.cert"
+  cp -a "$ACTIVE_KES_SKEY" "$backup/kes.skey"
+  [[ -f "$ACTIVE_KES_VKEY" ]] && cp -a "$ACTIVE_KES_VKEY" "$backup/kes.vkey"
+  cp -a "$ACTIVE_NODE_CERT" "$backup/node.cert"
   sudo install -o "$NODE_USER" -g "$NODE_GROUP" -m 0400 "$pending/kes.skey" "$ACTIVE_KES_SKEY"
   sudo install -o "$NODE_USER" -g "$NODE_GROUP" -m 0444 "$pending/kes.vkey" "$ACTIVE_KES_VKEY"
   sudo install -o "$NODE_USER" -g "$NODE_GROUP" -m 0444 "$transfer/node.cert" "$ACTIVE_NODE_CERT"

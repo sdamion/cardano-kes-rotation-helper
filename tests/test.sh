@@ -10,10 +10,15 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 touch "$tmp/one"
+mkdir -p "$tmp/.cabal/store/package/share/fixtures"
+touch "$tmp/.cabal/store/package/share/fixtures/kes.skey"
 
 selected=""
 choose_candidate selected "test file" "$tmp/one"
 [[ "$selected" == "$(canonical "$tmp/one")" ]] || fail "single candidate was not selected"
+
+found_keys="$(find_files kes.skey "$tmp")"
+[[ -z "$found_keys" ]] || fail "fixture KES key should be ignored"
 
 args='cardano-node run --socket-path /run/cardano/node.socket --shelley-kes-key=/keys/kes.skey'
 [[ "$(arg_value "$args" --socket-path)" == /run/cardano/node.socket ]] || fail "space-separated argument parsing"

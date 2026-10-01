@@ -15,6 +15,8 @@ Een begeleid Bash-script dat een KES-rotatie voor een Cardano block producer in 
 
 Als er precies één geldige kandidaat is, gebruikt het script die. Bij meerdere kandidaten laat het ze zien en moet je kiezen. Voor security-kritieke bestanden wordt nooit willekeurig een kandidaat gekozen.
 
+De bestaande `kes.vkey` hoeft niet aanwezig te zijn: `cardano-node` gebruikt tijdens bedrijf de KES signing key en het operational certificate. Het script leidt het bijbehorende `.vkey`-pad automatisch af van `kes.skey`, back-upt een bestaand bestand en schrijft daar bij installatie de nieuwe verificatiesleutel. Build- en testbestanden onder bijvoorbeeld `.cabal/store` worden bij het zoeken genegeerd.
+
 ## Ubuntu: downloaden en starten
 
 Download de laatste release op de **block producer**:
