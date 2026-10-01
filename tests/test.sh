@@ -20,6 +20,13 @@ choose_candidate selected "test file" "$tmp/one"
 found_keys="$(find_files kes.skey "$tmp")"
 [[ -z "$found_keys" ]] || fail "fixture KES key should be ignored"
 
+START_DIR="$tmp/run-here"
+mkdir "$START_DIR"
+unset KES_TRANSFER_ROOT
+detect_transfer_root
+[[ "$TRANSFER_ROOT" == "$(canonical "$START_DIR/kes-transfer")" ]] || fail "local transfer folder creation"
+[[ -d "$TRANSFER_ROOT" ]] || fail "local transfer folder was not created"
+
 args='cardano-node run --socket-path /run/cardano/node.socket --shelley-kes-key=/keys/kes.skey'
 [[ "$(arg_value "$args" --socket-path)" == /run/cardano/node.socket ]] || fail "space-separated argument parsing"
 [[ "$(arg_value "$args" --shelley-kes-key)" == /keys/kes.skey ]] || fail "equals argument parsing"

@@ -2,8 +2,9 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="1.1.2"
+VERSION="1.2.0"
 SCRIPT_NAME="$(basename "$0")"
+START_DIR="$PWD"
 NETWORK_ARGS=()
 
 die() { printf '\nERROR: %s\n\n' "$*" >&2; exit 1; }
@@ -146,11 +147,15 @@ detect_service() {
 }
 
 detect_transfer_root() {
-  local -a mounts=()
-  mapfile -t mounts < <(lsblk -J -o MOUNTPOINTS,RM 2>/dev/null | jq -r '.. | objects | select(.rm == true) | .mountpoints[]? // empty' 2>/dev/null || true)
-  (( ${#mounts[@]} )) || mapfile -t mounts < <(findmnt -rn -o TARGET 2>/dev/null | awk '$0 ~ "^/media/|^/mnt/|^/run/media/"')
-  choose_candidate TRANSFER_ROOT "mounted transfer/USB directory" "${mounts[@]}"
-  require_dir "$TRANSFER_ROOT"
+  TRANSFER_ROOT="${KES_TRANSFER_ROOT:-$START_DIR/kes-transfer}"
+  mkdir -p "$TRANSFER_ROOT"
+  chmod 700 "$TRANSFER_ROOT"
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    chown "$SUDO_USER:$(id -gn "$SUDO_USER")" "$TRANSFER_ROOT"
+  fi
+  TRANSFER_ROOT="$(canonical "$TRANSFER_ROOT")"
+  printf '\nLocal transfer folder: %s\n' "$TRANSFER_ROOT"
+  printf 'The files for the cold node will be stored in this folder.\n'
 }
 
 detect_bp_environment() {
@@ -220,7 +225,7 @@ prepare() {
   confirm "DETECTED BLOCK PRODUCER SETTINGS" \
     "Network: $NETWORK_NAME" "Socket: $NODE_SOCKET" "Genesis: $SHELLEY_GENESIS" \
     "Active KES key: $ACTIVE_KES_SKEY" "Active certificate: $ACTIVE_NODE_CERT" \
-    "Service/user: $SERVICE ($NODE_USER:$NODE_GROUP)" "Transfer media: $TRANSFER_ROOT"
+    "Service/user: $SERVICE ($NODE_USER:$NODE_GROUP)" "Local transfer folder: $TRANSFER_ROOT"
 
   log "QUERYING NODE AND CALCULATING KES PERIOD"
   local tip slot slots period rotation transfer pending
@@ -260,9 +265,14 @@ NETWORK_NAME=$(quote "$NETWORK_NAME")
 NETWORK_KIND=$( [[ "$NETWORK_NAME" == mainnet ]] && printf mainnet || printf testnet )
 TESTNET_MAGIC=$( [[ ${NETWORK_ARGS[0]} == --testnet-magic ]] && quote "${NETWORK_ARGS[1]}" || printf "''" )
 TRANSFER_NAME=$(quote "$(basename "$transfer")")
+TRANSFER_ROOT=$(quote "$TRANSFER_ROOT")
 EOF
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    chown -R "$SUDO_USER:$(id -gn "$SUDO_USER")" "$transfer"
+  fi
   sync
-  printf '\nTransfer directory prepared: %s\n' "$transfer"
+  printf '\nFiles for the cold node are stored here:\n  %s\n' "$transfer"
+  printf 'Copy this complete directory manually to the cold node.\n'
   printf 'The KES signing key remains only at: %s/kes.skey\n' "$pending"
 }
 
@@ -337,10 +347,10 @@ rotate() {
   prepare
   log "ACTION REQUIRED ON THE COLD NODE"
   printf '%s\n' \
-    "1. Safely unmount and move the transfer media to the offline cold node." \
+    "1. Manually copy the displayed kes-rotation-* directory to the offline cold node." \
     "2. On the cold node run: sudo ./$(basename "$0") cold /path/to/kes-rotation-*" \
-    "3. Safely move the media back and mount it on this block producer."
-  read -r -p "When the signed directory is back and mounted, press Enter to continue... "
+    "3. Copy the signed directory back into: $TRANSFER_ROOT"
+  read -r -p "When node.cert is back in the local transfer directory, press Enter to continue... "
   detect_transfer_root
   install_phase
 }

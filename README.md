@@ -10,7 +10,7 @@ Een begeleid Bash-script dat een KES-rotatie voor een Cardano block producer in 
 - de draaiende `cardano-node` en zijn startargumenten;
 - node socket, Shelley genesis, actieve `kes.skey`, `kes.vkey` en `node.cert`;
 - de systemd-service en de ingestelde gebruiker/groep;
-- aangekoppelde USB- of andere verwisselbare media;
+- een lokale `kes-transfer`-map in de folder van waaruit het script wordt gestart;
 - na terugkomst de juiste transfermap aan de hand van de unieke rotatie-ID.
 
 Als er precies één geldige kandidaat is, gebruikt het script die. Bij meerdere kandidaten laat het ze zien en moet je kiezen. Voor security-kritieke bestanden wordt nooit willekeurig een kandidaat gekozen.
@@ -53,8 +53,8 @@ sudo CARDANO_CLI=/volledig/pad/naar/cardano-cli ./cardano-kes-rotate.sh
 
 1. Start `sudo ./cardano-kes-rotate.sh` op de block producer.
 2. Controleer de automatisch gevonden paden en bevestig ze.
-3. Kies de aangekoppelde USB/transfermap. Het script maakt daar `kes-rotation-<UTC-tijd>/` aan.
-4. Ontkoppel de media veilig en verbind deze met de offline cold node.
+3. Het script maakt automatisch `./kes-transfer/kes-rotation-<UTC-tijd>/` aan en toont het volledige pad.
+4. Kopieer de volledige `kes-rotation-*`-map handmatig naar de offline cold node.
 5. Ga op de cold node naar de transfermap en voer uit:
 
    ```bash
@@ -63,7 +63,7 @@ sudo CARDANO_CLI=/volledig/pad/naar/cardano-cli ./cardano-kes-rotate.sh
    ```
 
 6. Het script vindt `cold.skey` en de actuele `cold.counter`, toont alles ter controle, maakt een counter-back-up en schrijft `node.cert` in de transfermap.
-7. Verplaats de media terug naar de block producer en koppel deze aan.
+7. Kopieer de ondertekende map terug naar dezelfde lokale `kes-transfer`-map op de block producer.
 8. Druk daar op Enter in de wachtende flow. Het script vindt de map, controleert hashes en de koppeling met de lokaal bewaarde KES key, maakt een back-up, installeert de credentials, herstart de service en controleert node tip en KES-status.
 
 Als de terminal tussentijds is gesloten, hervat je op de block producer met:
