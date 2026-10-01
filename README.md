@@ -66,6 +66,8 @@ sudo CARDANO_CLI=/volledig/pad/naar/cardano-cli ./cardano-kes-rotate.sh
 7. Kopieer de ondertekende map terug naar dezelfde lokale `kes-transfer`-map op de block producer.
 8. Druk daar op Enter in de wachtende flow. Het script vindt de map, controleert hashes en de koppeling met de lokaal bewaarde KES key, maakt een back-up, installeert de credentials, herstart de service en controleert node tip en KES-status.
 
+Na de herstart wacht het script maximaal twee minuten totdat de node socket opnieuw bestaat én `query tip` slaagt. Dat voorkomt een fout wanneer systemd de service al als actief meldt terwijl de node nog aan het initialiseren is.
+
 Als de terminal tussentijds is gesloten, hervat je op de block producer met:
 
 ```bash

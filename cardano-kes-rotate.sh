@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="1.2.0"
+VERSION="1.2.1"
 SCRIPT_NAME="$(basename "$0")"
 START_DIR="$PWD"
 NETWORK_ARGS=()
@@ -312,6 +312,30 @@ find_returned_transfer() {
   return 1
 }
 
+wait_for_node_ready() {
+  local attempts="${NODE_READY_ATTEMPTS:-60}" attempt tip
+  printf '\nWaiting for cardano-node socket and a successful tip query'
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if ! sudo systemctl is-active --quiet "$SERVICE"; then
+      echo
+      sudo systemctl --no-pager --full status "$SERVICE" || true
+      die "cardano-node stopped while waiting. Previous credentials are in: $backup"
+    fi
+    if [[ -S "$NODE_SOCKET" ]] &&
+       tip="$("$CARDANO_CLI" query tip "${NETWORK_ARGS[@]}" --socket-path "$NODE_SOCKET" 2>/dev/null)"; then
+      printf ' ready.\n'
+      printf '%s\n' "$tip" | jq . 2>/dev/null || printf '%s\n' "$tip"
+      return 0
+    fi
+    printf '.'
+    sleep 2
+  done
+  echo
+  sudo systemctl --no-pager --full status "$SERVICE" || true
+  printf '\nExpected socket: %s\n' "$NODE_SOCKET" >&2
+  die "Node did not become queryable within $((attempts * 2)) seconds. Previous credentials are in: $backup"
+}
+
 install_phase() {
   need sha256sum
   local pending="$WORK_ROOT/pending" transfer backup rotation completed local_hash returned_hash
@@ -333,10 +357,9 @@ install_phase() {
   sudo install -o "$NODE_USER" -g "$NODE_GROUP" -m 0400 "$pending/kes.skey" "$ACTIVE_KES_SKEY"
   sudo install -o "$NODE_USER" -g "$NODE_GROUP" -m 0444 "$pending/kes.vkey" "$ACTIVE_KES_VKEY"
   sudo install -o "$NODE_USER" -g "$NODE_GROUP" -m 0444 "$transfer/node.cert" "$ACTIVE_NODE_CERT"
-  sudo systemctl restart "$SERVICE"; sleep 5
-  sudo systemctl is-active --quiet "$SERVICE" || { sudo systemctl --no-pager --full status "$SERVICE" || true; die "Node restart failed. Restore from $backup"; }
   if [[ "$NETWORK_KIND" == mainnet ]]; then NETWORK_ARGS=(--mainnet); else NETWORK_ARGS=(--testnet-magic "$TESTNET_MAGIC"); fi
-  "$CARDANO_CLI" query tip "${NETWORK_ARGS[@]}" --socket-path "$NODE_SOCKET"
+  sudo systemctl restart "$SERVICE"
+  wait_for_node_ready
   "$CARDANO_CLI" query kes-period-info "${NETWORK_ARGS[@]}" --socket-path "$NODE_SOCKET" --op-cert-file "$ACTIVE_NODE_CERT"
   rotation="$(<"$pending/rotation-id.txt")"; completed="$WORK_ROOT/completed"; mkdir -p "$completed"; mv "$pending" "$completed/$rotation"
   log "KES ROTATION COMPLETE"
