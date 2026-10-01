@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 SCRIPT_NAME="$(basename "$0")"
 NETWORK_ARGS=()
 
@@ -13,6 +13,33 @@ require_file() { [[ -f "$1" ]] || die "File not found: $1"; }
 require_dir() { [[ -d "$1" ]] || die "Directory not found: $1"; }
 canonical() { realpath "$1" 2>/dev/null || readlink -f "$1" 2>/dev/null || printf '%s\n' "$1"; }
 quote() { printf '%q' "$1"; }
+
+install_system_dependencies() {
+  local -a commands=(jq sha256sum lsblk findmnt pgrep ps)
+  local command_name missing=0
+  for command_name in "${commands[@]}"; do
+    command -v "$command_name" >/dev/null 2>&1 || missing=1
+  done
+  (( missing == 1 )) || return 0
+
+  command -v apt-get >/dev/null 2>&1 ||
+    die "Required tools are missing and apt-get is unavailable. Install: jq coreutils util-linux procps"
+
+  log "INSTALLING REQUIRED UBUNTU TOOLS"
+  if (( EUID == 0 )); then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y jq coreutils util-linux procps
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y jq coreutils util-linux procps
+  else
+    die "Run this script with sudo so it can install: jq coreutils util-linux procps"
+  fi
+
+  for command_name in "${commands[@]}"; do
+    command -v "$command_name" >/dev/null 2>&1 || die "Installation completed but command is still missing: $command_name"
+  done
+}
 
 ask() {
   local var="$1" prompt="$2" default="${3:-}" answer=""
@@ -296,9 +323,9 @@ EOF
 
 main() {
   case "${1:-rotate}" in
-    rotate) rotate ;;
+    rotate) install_system_dependencies; rotate ;;
     cold) cold "$@" ;;
-    install) WORK_ROOT="${KES_ROTATION_HOME:-$HOME/kes-rotation}"; TRANSFER_ROOT=/mnt; install_phase ;;
+    install) install_system_dependencies; WORK_ROOT="${KES_ROTATION_HOME:-$HOME/kes-rotation}"; TRANSFER_ROOT=/mnt; install_phase ;;
     -h|--help|help) usage ;;
     *) usage; die "Unknown command: $1" ;;
   esac

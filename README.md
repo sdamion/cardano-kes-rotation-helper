@@ -32,14 +32,14 @@ chmod 700 cardano-kes-rotate.sh
 sudo ./cardano-kes-rotate.sh
 ```
 
-Benodigd op Ubuntu:
+Benodigde Ubuntu-tools worden bij het starten op de block producer automatisch gecontroleerd. Als er iets ontbreekt, voert het script zelf het volgende uit:
 
 ```bash
-sudo apt update
-sudo apt install -y jq coreutils util-linux procps
+sudo apt-get update
+sudo apt-get install -y jq coreutils util-linux procps
 ```
 
-`cardano-cli` moet al geïnstalleerd zijn en compatibel zijn met je draaiende `cardano-node`.
+Als alles al aanwezig is, wordt `apt-get` niet aangeroepen. In `cold`-modus wordt `apt-get` nooit aangeroepen, zodat de cold node offline kan blijven. Daar moeten `sha256sum` (normaal standaard aanwezig via `coreutils`) en een compatibele `cardano-cli` vooraf beschikbaar zijn. `cardano-cli` moet ook op de block producer al geïnstalleerd zijn en compatibel zijn met je draaiende `cardano-node`.
 
 ## De volledige flow
 
