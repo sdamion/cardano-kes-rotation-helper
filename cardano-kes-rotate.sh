@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION="1.2.1"
+VERSION="1.3.0"
 SCRIPT_NAME="$(basename "$0")"
 START_DIR="$PWD"
 NETWORK_ARGS=()
@@ -313,11 +313,11 @@ find_returned_transfer() {
 }
 
 wait_for_node_ready() {
-  local attempts="${NODE_READY_ATTEMPTS:-60}" attempt tip
-  printf '\nWaiting for cardano-node socket and a successful tip query'
-  for ((attempt = 1; attempt <= attempts; attempt++)); do
+  local timeout="${NODE_READY_TIMEOUT_SECONDS:-14400}" interval=5 started=$SECONDS elapsed=0 tip progress
+  printf '\nWaiting for cardano-node socket and a successful tip query.\n'
+  printf 'A ChainDB validation can take several hours; do not interrupt the node.\n'
+  while (( elapsed < timeout )); do
     if ! sudo systemctl is-active --quiet "$SERVICE"; then
-      echo
       sudo systemctl --no-pager --full status "$SERVICE" || true
       die "cardano-node stopped while waiting. Previous credentials are in: $backup"
     fi
@@ -325,20 +325,29 @@ wait_for_node_ready() {
        tip="$("$CARDANO_CLI" query tip "${NETWORK_ARGS[@]}" --socket-path "$NODE_SOCKET" 2>/dev/null)"; then
       printf ' ready.\n'
       printf '%s\n' "$tip" | jq . 2>/dev/null || printf '%s\n' "$tip"
+      NODE_TIP_JSON="$tip"
       return 0
     fi
-    printf '.'
-    sleep 2
+    elapsed=$((SECONDS - started))
+    if (( elapsed == 0 || elapsed % 30 < interval )); then
+      progress="$(sudo journalctl -u "$SERVICE" -n 300 --no-pager 2>/dev/null | grep 'Validated chunk' | tail -n1 || true)"
+      if [[ -n "$progress" ]]; then
+        printf '[%02d:%02d:%02d] %s\n' "$((elapsed / 3600))" "$(((elapsed % 3600) / 60))" "$((elapsed % 60))" "$progress"
+      else
+        printf '[%02d:%02d:%02d] Node is active; waiting for socket/query readiness.\n' "$((elapsed / 3600))" "$(((elapsed % 3600) / 60))" "$((elapsed % 60))"
+      fi
+    fi
+    sleep "$interval"
+    elapsed=$((SECONDS - started))
   done
-  echo
   sudo systemctl --no-pager --full status "$SERVICE" || true
   printf '\nExpected socket: %s\n' "$NODE_SOCKET" >&2
-  die "Node did not become queryable within $((attempts * 2)) seconds. Previous credentials are in: $backup"
+  die "Node did not become queryable within $timeout seconds. Previous credentials are in: $backup"
 }
 
 install_phase() {
   need sha256sum
-  local pending="$WORK_ROOT/pending" transfer backup rotation completed local_hash returned_hash
+  local pending="$WORK_ROOT/pending" transfer backup rotation completed local_hash returned_hash kes_info start_period current_period end_period remaining
   require_dir "$pending"; require_file "$pending/install.conf"; require_file "$pending/kes.skey"; require_file "$pending/kes.vkey"
   # Created locally by this script with shell-escaped values.
   # shellcheck disable=SC1090
@@ -360,10 +369,29 @@ install_phase() {
   if [[ "$NETWORK_KIND" == mainnet ]]; then NETWORK_ARGS=(--mainnet); else NETWORK_ARGS=(--testnet-magic "$TESTNET_MAGIC"); fi
   sudo systemctl restart "$SERVICE"
   wait_for_node_ready
-  "$CARDANO_CLI" query kes-period-info "${NETWORK_ARGS[@]}" --socket-path "$NODE_SOCKET" --op-cert-file "$ACTIVE_NODE_CERT"
+  kes_info="$("$CARDANO_CLI" query kes-period-info "${NETWORK_ARGS[@]}" --socket-path "$NODE_SOCKET" --op-cert-file "$ACTIVE_NODE_CERT")"
+  printf '%s\n' "$kes_info" | jq . 2>/dev/null || printf '%s\n' "$kes_info"
+  start_period="$(jq -r '.qKesStartKesInterval // empty' <<<"$kes_info" 2>/dev/null || true)"
+  current_period="$(jq -r '.qKesCurrentKesPeriod // empty' <<<"$kes_info" 2>/dev/null || true)"
+  end_period="$(jq -r '.qKesEndKesInterval // empty' <<<"$kes_info" 2>/dev/null || true)"
+  if [[ "$current_period" =~ ^[0-9]+$ && "$end_period" =~ ^[0-9]+$ ]]; then
+    remaining=$((end_period - current_period))
+  else
+    remaining="reported above"
+  fi
   rotation="$(<"$pending/rotation-id.txt")"; completed="$WORK_ROOT/completed"; mkdir -p "$completed"; mv "$pending" "$completed/$rotation"
-  log "KES ROTATION COMPLETE"
-  printf 'Backup: %s\nCompleted data: %s/%s\n' "$backup" "$completed" "$rotation"
+  log "SUCCESS: KES ROTATION COMPLETE"
+  printf '%s\n' \
+    "cardano-node service : active" \
+    "Node socket          : $NODE_SOCKET" \
+    "Tip query            : successful" \
+    "KES start period     : ${start_period:-reported above}" \
+    "KES current period   : ${current_period:-reported above}" \
+    "KES end period       : ${end_period:-reported above}" \
+    "KES periods remaining: $remaining" \
+    "Previous backup      : $backup" \
+    "Completed data       : $completed/$rotation"
+  printf '\nThe new KES certificate is active and accepted by the node.\n'
 }
 
 rotate() {
